@@ -62,7 +62,7 @@ function dudenotify() {
   local DESCRIPTION="$3"
 
   if [ -n "$notify_cmd" ]; then
-    eval $notify_cmd
+    eval "DISPLAY=:0 $notify_cmd"
   fi
 
   echo $ylw`date "$date_format"`$clr
