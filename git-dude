@@ -25,6 +25,7 @@ set -e
 interval=$(git config dude.interval || true)
 interval=${interval:-60}
 app_name=$(basename $0)
+date_format="+%T %D"
 
 export LC_ALL=C # make sure git talks english
 
@@ -49,7 +50,7 @@ function dudenotify() {
     eval $notify_cmd
   fi
 
-  date "+%T %D"
+  date $date_format
   echo "$TITLE"
   if [ -n "$DESCRIPTION" ]; then
     echo "$DESCRIPTION"
@@ -57,48 +58,104 @@ function dudenotify() {
   echo
 }
 
+function display_help() {
+  echo "git-dude - Git commit notifier"
+  echo "Usage: git dude [-w] [-h] [path]"
+  echo "  -w Continually watch the specified paths"
+  echo "  -h Display help message"
+  echo
+}
+
+WATCH=false
+
+# Process options
+while getopts "wh" opt; do
+  case $opt in
+    w)
+      WATCH=true
+      ;;
+    h)
+      display_help
+      exit 0
+      ;;
+  esac
+done
+
+# Shift off the used args
+shift $((OPTIND-1))
+
 [[ -d "$1" ]] && cd $1
 
-while true; do
+# Use colors if we are writing to a tty device.
+if (test -t 1) || (test $color = always)
+then
+  red=$(printf "\033[31m")
+  grn=$(printf "\033[32m")
+  mag=$(printf "\033[35m")
+  clr=$(printf "\033[m")
+  cols=$(tput cols)
+fi
+
+# Make these available.
+#export red grn mag clr
+
+if [ $WATCH == true ] ; then
+  while true; do
+    for dir_name in *; do
+      if [[ -d "$dir_name" && $(cd "$dir_name"; git rev-parse --git-dir 2>/dev/null) ]]; then
+
+        if [[ $(cd "$dir_name"; git config dude.ignore) == true ]]; then
+          continue
+        fi
+
+        repo_name=$(basename "$dir_name" .git)
+        cd "$dir_name"
+
+        changes=$(git fetch 2>&1 | grep -F -- '->' | sed 's/^ [+*=!-] //')
+
+        icon_path=$(git config dude.icon || true)
+        icon_path=${icon_path:-`pwd`/icon.png}
+        icon_path=${icon_path// /\\ } # escape spaces before eval
+        eval icon_path=$icon_path # to expand ~
+
+        while read -r line; do
+          case $line in
+            *..*)
+              commit_range=$(echo "$line" | awk '{ print $1 }')
+              branch_name=$(echo "$line" | awk '{ print $2 }')
+              commit_messages=$(git log $commit_range --pretty=format:'%s (%an)')
+              dudenotify $icon_path "New commits in $repo_name/$branch_name" "$commit_messages"
+              ;;
+            *new\ branch*)
+              branch_name=$(echo "$line" | awk '{ print $3 }')
+              dudenotify $icon_path "New branch $repo_name/$branch_name" ""
+              ;;
+            *new\ tag*)
+              tag_name=$(echo "$line" | awk '{ print $3 }')
+              dudenotify $icon_path "New tag $repo_name/$tag_name" ""
+              ;;
+          esac
+        done <<< "$changes"
+
+        cd - &>/dev/null
+      fi
+    done
+
+    sleep $interval
+  done
+else
+  echo "Repos to watch:"
   for dir_name in *; do
     if [[ -d "$dir_name" && $(cd "$dir_name"; git rev-parse --git-dir 2>/dev/null) ]]; then
 
       if [[ $(cd "$dir_name"; git config dude.ignore) == true ]]; then
         continue
       fi
-
       repo_name=$(basename "$dir_name" .git)
-      cd "$dir_name"
-
-      changes=$(git fetch 2>&1 | grep -F -- '->' | sed 's/^ [+*=!-] //')
-
-      icon_path=$(git config dude.icon || true)
-      icon_path=${icon_path:-`pwd`/icon.png}
-      icon_path=${icon_path// /\\ } # escape spaces before eval
-      eval icon_path=$icon_path # to expand ~
-
-      while read -r line; do
-        case $line in
-          *..*)
-            commit_range=$(echo "$line" | awk '{ print $1 }')
-            branch_name=$(echo "$line" | awk '{ print $2 }')
-            commit_messages=$(git log $commit_range --pretty=format:'%s (%an)')
-            dudenotify $icon_path "New commits in $repo_name/$branch_name" "$commit_messages"
-            ;;
-          *new\ branch*)
-            branch_name=$(echo "$line" | awk '{ print $3 }')
-            dudenotify $icon_path "New branch $repo_name/$branch_name" ""
-            ;;
-          *new\ tag*)
-            tag_name=$(echo "$line" | awk '{ print $3 }')
-            dudenotify $icon_path "New tag $repo_name/$tag_name" ""
-            ;;
-        esac
-      done <<< "$changes"
-
-      cd - &>/dev/null
+      echo "  $repo_name"
     fi
   done
 
-  sleep $interval
-done
+  echo
+  echo "Run 'git dude -w $@' to monitor"
+fi
