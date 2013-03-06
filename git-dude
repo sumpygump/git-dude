@@ -41,6 +41,21 @@ elif [ $(which notify 2>/dev/null) ]; then
   notify_cmd='notify --type information --icon "$ICON_PATH" --group "Git Commit" --title "$TITLE" "$DESCRIPTION"'
 fi
 
+# Use colors if we are writing to a tty device.
+if (test -t 1) || (test $color = always)
+then
+  red=$(printf "\033[31m")
+  grn=$(printf "\033[32m")
+  ylw=$(printf "\033[33m")
+  blu=$(printf "\033[34m")
+  mag=$(printf "\033[35m")
+  clr=$(printf "\033[m")
+  cols=$(tput cols)
+fi
+
+# Make these available.
+#export red grn mag clr
+
 function dudenotify() {
   local ICON_PATH="$1"
   local TITLE="$2"
@@ -50,8 +65,8 @@ function dudenotify() {
     eval $notify_cmd
   fi
 
-  date "$date_format"
-  echo "$TITLE"
+  echo $ylw`date "$date_format"`$clr
+  echo "${grn}$TITLE${clr}"
   if [ -n "$DESCRIPTION" ]; then
     echo "$DESCRIPTION"
   fi
@@ -85,19 +100,6 @@ done
 shift $((OPTIND-1))
 
 [[ -d "$1" ]] && cd $1
-
-# Use colors if we are writing to a tty device.
-if (test -t 1) || (test $color = always)
-then
-  red=$(printf "\033[31m")
-  grn=$(printf "\033[32m")
-  mag=$(printf "\033[35m")
-  clr=$(printf "\033[m")
-  cols=$(tput cols)
-fi
-
-# Make these available.
-#export red grn mag clr
 
 if [ $WATCH == true ] ; then
   while true; do
@@ -153,10 +155,11 @@ else
       fi
 
       repo_name=$(basename "$dir_name" .git)
-      echo "  $repo_name"
+      repo_url=$(cd "$dir_name"; git config remote.origin.url || true)
+      echo "  $grn$repo_name$blu ($repo_url)$clr"
     fi
   done
 
   echo
-  echo "Run 'git dude -w $@' to monitor"
+  echo "$ylw  Run 'git dude -w $@' to monitor$clr"
 fi
