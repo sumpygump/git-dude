@@ -29,6 +29,12 @@ date_format="+%T %D"
 
 export LC_ALL=C # make sure git talks english
 
+NOTIFICATION_PATH=~/.dude-notifications
+
+if [ ! -d $NOTIFICATION_PATH ]; then
+    mkdir -p $NOTIFICATION_PATH
+fi
+
 if [[ $(git config dude.notify-command) ]]; then
   notify_cmd=$(git config dude.notify-command)
 elif [ $(which notify-send 2>/dev/null) ]; then
@@ -56,6 +62,14 @@ function dudenotify() {
     echo "$DESCRIPTION"
   fi
   echo
+
+  notification_file="$NOTIFICATION_PATH/$(date "+%F_%H%M%S_%N").log"
+  echo $notification_file
+  echo `date "$date_format"` >> $notification_file
+  echo "$TITLE" >> $notification_file
+  if [ -n "$DESCRIPTION" ]; then
+      echo "$DESCRIPTION" >> $notification_file
+  fi
 }
 
 function display_help() {
