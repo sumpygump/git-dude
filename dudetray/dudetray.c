@@ -76,9 +76,8 @@ static void update_tooltip(gchar *message)
 void tray_icon_on_click(GtkStatusIcon *status_icon, 
     gpointer user_data) 
 { 
-    printf("Clicked on tray icon\n");
-    update_icon(TRUE);
-    //system("example.sh"); 
+    // Clicking the icon clears the icon without clearing the notifications
+    update_icon(FALSE);
 }
 
 void tray_icon_on_popup(GtkStatusIcon *status_icon,
