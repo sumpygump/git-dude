@@ -31,42 +31,6 @@ gchar notifications_path[1024];
 /* The current index where to place new messages */
 int notification_cursor = 0;
 
-struct Message *Message_create(gchar *date, gchar *subject, gchar *description, gboolean is_new)
-{
-    struct Message *msg = malloc(sizeof(struct Message));
-    assert(msg != NULL);
-
-    msg->date = strdup(date);
-    msg->subject = strdup(subject);
-
-    if (!description) {
-        description = "No description";
-    }
-    msg->description = strdup(description);
-
-    msg->is_new = is_new;
-
-    return msg;
-}
-
-void Message_destroy(struct Message *msg)
-{
-    assert(msg != NULL);
-
-    free(msg->date);
-    free(msg->subject);
-    free(msg->description);
-    free(msg);
-}
-
-void Message_print(struct Message *msg)
-{
-    printf("Date: %s\n", msg->date);
-    printf("Subject: %s\n", msg->subject);
-    printf("Isnew: %d\n", msg->is_new);
-    printf("Description:\n %s\n", msg->description);
-}
-
 void create_tray_icon()
 { 
     tray_icon = gtk_status_icon_new(); 
@@ -122,8 +86,6 @@ void tray_icon_on_popup(GtkStatusIcon *status_icon,
     guint activate_time,
     gpointer user_data)
 {
-    g_debug("tray icon clicked");
-
     if (!tray_menu) {
         GtkWidget *item_clear;
         GtkWidget *item_quit;
@@ -168,6 +130,101 @@ void tray_icon_on_popup(GtkStatusIcon *status_icon,
         activate_time
     );
 } 
+
+gboolean tray_icon_heartbeat(gpointer data)
+{
+    gboolean status;
+    gboolean save_status;
+    DIR *dir;
+    struct dirent *ent;
+
+    dir = opendir(notifications_path);
+    if (dir == NULL) {
+        // no notifications
+        closedir(dir);
+        return FALSE;
+    }
+
+    while ((ent = readdir (dir)) != NULL) {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) {
+            continue;
+        }
+
+        gchar filepath[1024];
+        strcpy(filepath, notifications_path);
+        strcat(filepath, ent->d_name);
+
+        status = read_status_file(filepath);
+
+        if (status) {
+            struct Message *new_message = parse_full_message(latest_message);
+            message_print(new_message);
+
+            save_status = save_notification(new_message);
+            if (!save_status) {
+                // If it didn't save, get out.
+                return FALSE;
+            }
+
+            // Remove the file so we don't read it again.
+            remove(filepath);
+
+            update_tooltip("Git dude: repositories updated");
+            update_icon(TRUE);
+        }
+    }
+    closedir(dir);
+    
+    return TRUE;
+}
+
+void tray_menu_clear_on_click(GtkStatusIcon *status_icon, gpointer user_data)
+{
+    update_icon(FALSE);
+    update_tooltip("Git dude monitor");
+
+    // Clear out all the notification_messages
+    memset(&notification_messages[0], 0, sizeof(notification_messages));
+
+    // Hide the menu and then remove each of the children
+    gtk_widget_hide_all(tray_menu);
+
+    GList *children;
+    GList *list;
+
+    children = gtk_container_get_children (GTK_CONTAINER (tray_menu));
+    for (list = children; list; list = g_list_next (list)) {
+        GtkWidget *menu_item = GTK_WIDGET (list->data);
+        gtk_container_remove(GTK_CONTAINER (tray_menu), menu_item);
+    }
+
+    // Null out the menu so it is created anew next time it's needed
+    tray_menu = NULL;
+
+    // Reset the cursor
+    notification_cursor = 0;
+}
+
+void tray_menu_quit_on_click(GtkStatusIcon *status_icon, gpointer user_data)
+{
+    gtk_main_quit();
+}
+
+gboolean save_notification(struct Message *message)
+{
+    notification_messages[notification_cursor] = message;
+    notification_cursor++;
+
+    if (notification_cursor > MAX_MESSAGES) {
+        return FALSE;
+    }
+
+    if (tray_menu) {
+        add_menu_item(message);
+    }
+
+    return TRUE;
+}
 
 void add_menu_item(struct Message *message)
 {
@@ -214,119 +271,6 @@ void display_message_dialog(struct Message *message)
     free(description);
 }
 
-gboolean save_notification(struct Message *message)
-{
-    notification_messages[notification_cursor] = message;
-    notification_cursor++;
-
-    if (notification_cursor > MAX_MESSAGES) {
-        return FALSE;
-    }
-
-    if (tray_menu) {
-        add_menu_item(message);
-    }
-
-    return TRUE;
-}
-
-void tray_menu_clear_on_click(GtkStatusIcon *status_icon, gpointer user_data)
-{
-    update_icon(FALSE);
-    update_tooltip("Git dude monitor");
-
-    // Clear out all the notification_messages
-    memset(&notification_messages[0], 0, sizeof(notification_messages));
-
-    // Hide the menu and then remove each of the children
-    gtk_widget_hide_all(tray_menu);
-
-    GList *children;
-    GList *list;
-
-    children = gtk_container_get_children (GTK_CONTAINER (tray_menu));
-    for (list = children; list; list = g_list_next (list)) {
-        GtkWidget *menu_item = GTK_WIDGET (list->data);
-        gtk_container_remove(GTK_CONTAINER (tray_menu), menu_item);
-    }
-
-    // Null out the menu so it is created anew next time it's needed
-    tray_menu = NULL;
-
-    // Reset the cursor
-    notification_cursor = 0;
-}
-
-void tray_menu_quit_on_click(GtkStatusIcon *status_icon, gpointer user_data)
-{
-    gtk_main_quit();
-}
-
-gboolean tray_icon_heartbeat(gpointer data)
-{
-    gboolean status;
-    gboolean save_status;
-    DIR *dir;
-    struct dirent *ent;
-
-    dir = opendir(notifications_path);
-    if (dir == NULL) {
-        // no notifications
-        closedir(dir);
-        return FALSE;
-    }
-
-    while ((ent = readdir (dir)) != NULL) {
-        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) {
-            continue;
-        }
-
-        gchar filepath[1024];
-        strcpy(filepath, notifications_path);
-        strcat(filepath, ent->d_name);
-
-        status = read_status_file(filepath);
-
-        if (status) {
-            struct Message *new_message = parse_full_message(latest_message);
-            Message_print(new_message);
-
-            save_status = save_notification(new_message);
-            if (!save_status) {
-                // If it didn't save, get out.
-                return FALSE;
-            }
-
-            // Remove the file so we don't read it again.
-            remove(filepath);
-
-            update_tooltip("Git dude: repositories updated");
-            update_icon(TRUE);
-        }
-    }
-    closedir(dir);
-    
-    return TRUE;
-}
-
-struct Message *parse_full_message(gchar *full_message)
-{
-    gchar *date;
-    gchar *subject;
-    gchar *description;
-
-    date = strtok(full_message, "\n");
-    subject = strtok(NULL, "\n");
-    description = strtok(NULL, "\0");
-
-    return Message_create(
-        date,
-        subject,
-        description,
-        TRUE
-    );
-}
-
 gboolean read_status_file(char *filename)
 {
     FILE *input = fopen(filename, "r");
@@ -351,7 +295,6 @@ gboolean read_status_file(char *filename)
         return FALSE;
     }
 
-
     size_t fread_result;
     fread_result = fread(buffer, fileLen, 1, input);
 
@@ -365,6 +308,60 @@ gboolean read_status_file(char *filename)
     free(buffer);
 
     return TRUE;
+}
+
+struct Message *parse_full_message(gchar *full_message)
+{
+    gchar *date;
+    gchar *subject;
+    gchar *description;
+
+    date = strtok(full_message, "\n");
+    subject = strtok(NULL, "\n");
+    description = strtok(NULL, "\0");
+
+    return message_create(
+        date,
+        subject,
+        description,
+        TRUE
+    );
+}
+
+struct Message *message_create(gchar *date, gchar *subject, gchar *description, gboolean is_new)
+{
+    struct Message *msg = malloc(sizeof(struct Message));
+    assert(msg != NULL);
+
+    msg->date = strdup(date);
+    msg->subject = strdup(subject);
+
+    if (!description) {
+        description = "No description";
+    }
+    msg->description = strdup(description);
+
+    msg->is_new = is_new;
+
+    return msg;
+}
+
+void message_destroy(struct Message *msg)
+{
+    assert(msg != NULL);
+
+    free(msg->date);
+    free(msg->subject);
+    free(msg->description);
+    free(msg);
+}
+
+void message_print(struct Message *msg)
+{
+    printf("Date: %s\n", msg->date);
+    printf("Subject: %s\n", msg->subject);
+    printf("Isnew: %d\n", msg->is_new);
+    printf("Description:\n %s\n", msg->description);
 }
 
 int main(int argc, char **argv)
