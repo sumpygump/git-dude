@@ -1,0 +1,2 @@
+gdk-pixbuf-csource --raw --name=git_logo_16_gdkp git-logo-16.png > git-logo-16.c
+gdk-pixbuf-csource --raw --name=git_logo_grey_16_gdkp git-logo-grey-16.png > git-logo-grey-16.c
